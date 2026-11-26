@@ -22,6 +22,7 @@ import type { AnthropicStreamEvent, NativeContentBlock, NativeMessage, NativeUsa
 import {
   buildExtraBody,
   getInitialSystemMessages,
+  getInitialUserPrefix,
   makeReplayDiagnostic,
   NATIVE_TOOL_CHANGES_BETA,
   prepareFrames,
@@ -195,6 +196,7 @@ class EventTranslator {
   finish(
     message: NativeMessage,
     usage: NativeUsage,
+    initialUserPrefix?: unknown[],
     initialSystemMessages?: unknown[],
   ): void {
     const authoritative = nativeContent(message.content);
@@ -212,7 +214,7 @@ class EventTranslator {
     this.output.errorMessage = mapped.errorMessage;
     this.output.diagnostics = [
       ...(this.output.diagnostics ?? []),
-      makeReplayDiagnostic(message, this.output, initialSystemMessages) as never,
+      makeReplayDiagnostic(message, this.output, initialUserPrefix, initialSystemMessages) as never,
     ];
   }
 
@@ -360,6 +362,7 @@ export function streamClaudeCode(
         : getCurrentSystemPrompt(transcript.messages);
       const tools = getCurrentTools(transcript.messages);
       const frames = prepareFrames(transcript.messages);
+      const initialUserPrefix = getInitialUserPrefix(transcript.messages);
       const initialSystemMessages = getInitialSystemMessages(transcript.messages);
       const preparedTools = prepareTools(tools);
       const extraBody = buildExtraBody(
@@ -380,13 +383,19 @@ export function streamClaudeCode(
         signal: options?.signal,
         timeoutMs: options?.timeoutMs,
         env: options?.env,
+        initialUserPrefix,
         initialSystemMessages,
         nativeSystemInjections: nativeTranscript?.systemInjections,
         betas: nativeTranscript ? [NATIVE_TOOL_CHANGES_BETA] : undefined,
         sessionId: options?.cacheRetention === "none" ? undefined : options?.sessionId,
         onEvent: (event) => translator.event(event),
       });
-      translator.finish(response.message, response.usage, response.initialSystemMessages);
+      translator.finish(
+        response.message,
+        response.usage,
+        response.initialUserPrefix,
+        response.initialSystemMessages,
+      );
       output.providerThinkingLevel = options?.reasoning;
       output.diagnostics = [
         ...(output.diagnostics ?? []),

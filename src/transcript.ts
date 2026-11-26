@@ -42,6 +42,7 @@ interface ReplayCarrier {
   version: 1;
   message: NativeMessage;
   projection: AssistantProjection;
+  initialUserPrefix?: unknown[];
   initialSystemMessages?: unknown[];
 }
 
@@ -116,14 +117,22 @@ function replayCarrier(message: AssistantMessage): ReplayCarrier | undefined {
   return isReplayCarrier(candidate) ? candidate : undefined;
 }
 
-export function getInitialSystemMessages(messages: Message[]): unknown[] | undefined {
+function replayMetadata(messages: Message[], key: "initialUserPrefix" | "initialSystemMessages"): unknown[] | undefined {
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index];
     if (message?.role !== "assistant") continue;
-    const value = replayCarrier(message)?.initialSystemMessages;
+    const value = replayCarrier(message)?.[key];
     if (value) return clone(value);
   }
   return undefined;
+}
+
+export function getInitialUserPrefix(messages: Message[]): unknown[] | undefined {
+  return replayMetadata(messages, "initialUserPrefix");
+}
+
+export function getInitialSystemMessages(messages: Message[]): unknown[] | undefined {
+  return replayMetadata(messages, "initialSystemMessages");
 }
 
 function projectionsEqual(left: AssistantProjection, right: AssistantProjection): boolean {
@@ -415,6 +424,7 @@ export function buildExtraBody(
 export function makeReplayDiagnostic(
   message: NativeMessage,
   output: AssistantMessage,
+  initialUserPrefix?: unknown[],
   initialSystemMessages?: unknown[],
 ) {
   return {
@@ -425,6 +435,7 @@ export function makeReplayDiagnostic(
         version: 1,
         message: clone(message),
         projection: assistantProjection(output),
+        ...(initialUserPrefix ? { initialUserPrefix: clone(initialUserPrefix) } : {}),
         ...(initialSystemMessages ? { initialSystemMessages: clone(initialSystemMessages) } : {}),
       },
     },
