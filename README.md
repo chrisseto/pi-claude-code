@@ -6,6 +6,12 @@ routing all Claude model requests through the official Claude Code CLI.
 Pi still handles conversation history, approvals, compaction, and tool
 execution. Claude Code only talks to the model. It never runs tools itself.
 
+> [!INFO]
+> Fork of upstream with:
+> - upstream/58 merged
+> - upstream/74 merged
+> - e853003a5df6b5110affaab228cdfcc9cc070b77 reverted
+
 > [!WARNING]
 > **The future of this extension is uncertain.** Right now it works by running
 > Pi's requests through the official Claude Code CLI in non-interactive mode

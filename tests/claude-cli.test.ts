@@ -14,6 +14,7 @@ import {
   runClaudeRequest,
 } from "../src/claude-cli.ts";
 import { createClaudeCodeProvider } from "../src/provider.ts";
+import { prepareFrames } from "../src/transcript.ts";
 
 test("stabilizes Claude Code's native replay reminders and cache breakpoint", () => {
   const canonical = [{ type: "text", text: "inspect" }];
@@ -86,6 +87,48 @@ test("stabilizes Claude Code's native replay reminders and cache breakpoint", ()
     (rewritten.messages.at(-1)?.content as Array<Record<string, unknown>>).at(-1)?.cache_control,
     { type: "ephemeral", ttl: "1h" },
   );
+});
+
+test("lines up a failed tool result that had images with Claude Code's text-only copy", () => {
+  const image = { type: "image" as const, data: "shot", mimeType: "image/png" };
+  const frames = prepareFrames([
+    { role: "user", content: "inspect", timestamp: 1 },
+    {
+      role: "assistant",
+      api: "test",
+      provider: "claude-code",
+      model: "sonnet",
+      content: [{ type: "toolCall", id: "t1", name: "codemode", arguments: {} }],
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "toolUse",
+      timestamp: 2,
+    },
+    {
+      role: "toolResult",
+      toolCallId: "t1",
+      toolName: "codemode",
+      content: [text("Script failed"), text("[Image saved to /tmp/shot.png]"), image, text("Script error: ENOENT")] as never,
+      isError: true,
+      timestamp: 3,
+    },
+  ]);
+  const failed = (frames[2]!.message.content as Block[])[0]!;
+  // Claude Code drops the images of an error result with array content and
+  // joins its text blocks into one; string content passes through unchanged.
+  const asSentByClaudeCode = (block: Block): Block => {
+    if (block.is_error !== true || !Array.isArray(block.content)) return block;
+    const content = block.content as Block[];
+    if (content.every((item) => item.type === "text")) return block;
+    const texts = content.filter((item) => item.type === "text").map((item) => item.text as string);
+    return { ...block, content: texts.length ? [text(texts.join("\n\n"))] : [] };
+  };
+  const wire = [
+    { role: "user", content: [text("inspect")] },
+    structuredClone(frames[1]!.message),
+    { role: "user", content: [asSentByClaudeCode(structuredClone(failed))] },
+  ];
+  assert.deepEqual(withoutMarkers(rewrite(wire, frames)[2]?.content), [failed]);
+  assert.equal(failed.content, "Script failed\n[Image saved to /tmp/shot.png]\nScript error: ENOENT");
 });
 
 test("injects native system history at assistant boundaries", () => {
@@ -245,6 +288,7 @@ if (process.argv.includes("--system-prompt-file")) {
 if (process.cwd() !== process.env.EXPECTED_CWD) throw new Error(\`wrong cwd: \${process.cwd()}\`);
 if (process.env.CLAUDE_CODE_ENTRYPOINT !== "pi-agent") throw new Error(\`wrong entrypoint: \${process.env.CLAUDE_CODE_ENTRYPOINT}\`);
 if (process.env.CLAUDE_CODE_DISABLE_FILE_MENTIONS !== "1") throw new Error("file mentions enabled");
+if (process.env.CLAUDE_CODE_DISABLE_ATTACHMENTS !== "1") throw new Error("attachments enabled");
 if (process.env.PROCESS_LOG) appendFileSync(process.env.PROCESS_LOG, \`\${process.pid}\\n\`);
 const systemIndex = process.argv.indexOf("--system-prompt-file");
 if (systemIndex >= 0 && readFileSync(process.argv[systemIndex + 1], "utf8") !== process.env.EXPECTED_SYSTEM_PROMPT) {
